@@ -8,6 +8,7 @@ void kernel_main();
 void printstring(char* msg);
 void putc(char a);
 void init_video();
+void hexdump(unsigned long alpha);
 
 // GDT
 void init_gdt();
@@ -21,6 +22,7 @@ void setNormalInt(unsigned char num,unsigned long base);
 // TIMER MOD
 void init_timer();
 int getTicks();
+void resetTicks();
 
 // PS2
 void init_ps2();
@@ -56,6 +58,15 @@ void kernel_main(){
 }
 
 //
+// UHCI
+//
+//
+
+void init_uhci(){
+	printstring("UHCI: initialisation started!\n");
+}
+
+//
 // PCI
 //
 //
@@ -88,10 +99,11 @@ void init_pci(){
 			for(int function = 0 ; function < 7 ; function++){
 				unsigned short vendor = pciConfigReadWord(bus,slot,function,0);
 				if(vendor != 0xFFFF){
-					printstring("PCI: device detected, ");
+					printstring("PCI: ");
 					unsigned char classc = (pciConfigReadWord(bus,slot,function,0x0A)>>8)&0xFF;
 					unsigned char sublca = (pciConfigReadWord(bus,slot,function,0x0A))&0xFF;
 					unsigned char subsub = (pciConfigReadWord(bus,slot,function,0x08)>>8)&0xFF;
+					
 					if(classc==0x00){
 						printstring("unclassified: ");
 					}else if(classc==0x01){
@@ -210,7 +222,63 @@ void init_pci(){
 						}else if(sublca==0x03){
 							printstring(" USB controller, ");
 							if(subsub==0x00){
-								printstring("UHCI [USB 1]");
+							
+								printstring("UHCI [USB 1]\n");
+								
+								printstring("UHCI: BAR0 = 0x");
+								unsigned short suba[2];
+								suba[0] = pciConfigReadWord(bus,slot,function,16);
+								suba[1] = pciConfigReadWord(bus,slot,function,18);
+								unsigned long BAR0 = (unsigned long)((unsigned long*)suba)[0];
+								hexdump(BAR0);
+								
+								printstring(" BAR1 = 0x");
+								unsigned short subb[2];
+								subb[0] = pciConfigReadWord(bus,slot,function,20);
+								subb[1] = pciConfigReadWord(bus,slot,function,22);
+								unsigned long BAR1 = (unsigned long)((unsigned long*)subb)[0];
+								hexdump(BAR1);
+								
+								printstring(" BAR2 = 0x");
+								unsigned short subc[2];
+								subc[0] = pciConfigReadWord(bus,slot,function,24);
+								subc[1] = pciConfigReadWord(bus,slot,function,26);
+								unsigned long BAR2 = (unsigned long)((unsigned long*)subc)[0];
+								hexdump(BAR2);
+								
+								printstring(" BAR3 = 0x");
+								unsigned short subd[2];
+								subd[0] = pciConfigReadWord(bus,slot,function,28);
+								subd[1] = pciConfigReadWord(bus,slot,function,30);
+								unsigned long BAR3 = (unsigned long)((unsigned long*)subd)[0];
+								hexdump(BAR3);
+								
+								printstring(" BAR4 = 0x");
+								unsigned short sube[2];
+								sube[0] = pciConfigReadWord(bus,slot,function,32);//32
+								sube[1] = pciConfigReadWord(bus,slot,function,34);//34
+								unsigned long BAR4 = (unsigned long)((unsigned long*)sube)[0];
+								BAR4 = BAR4-1;
+								hexdump(BAR4);
+								
+								printstring(" BAR5 = 0x");
+								unsigned short subf[2];
+								subf[0] = pciConfigReadWord(bus,slot,function,36);
+								subf[1] = pciConfigReadWord(bus,slot,function,38);
+								unsigned long BAR5 = (unsigned long)((unsigned long*)subf)[0];
+								hexdump(BAR5);
+								
+								printstring("\nUHCI: ");
+								char* bx = (char*) BAR4;
+								for(int i = 0 ; i < 30 ; i++){
+									char x = inportb(BAR4+i);
+									hexdump(x);
+									printstring(" ");
+								}
+								printstring("\n");
+								
+								init_uhci();
+								
 							}else if(subsub==0x10){
 								printstring("OHCI [USB 1]");
 							}else if(subsub==0x20){
@@ -404,6 +472,7 @@ void irq_keyboard(){
 }
 
 void init_ps2(){
+	resetTicks();
 	char ps2status = getPS2StatusRegisterText();
 	if((ps2status & 0b00000001)>0){
 		printstring("PS2: read buffer full\n");
@@ -419,12 +488,17 @@ void init_ps2(){
 	}else{
 		printstring("PS2: data for device\n");
 	}
-	while(getPS2ReadyToWrite()!=0){}
+	while(getPS2ReadyToWrite()!=0){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	outportb(PS2_COMMAND,0x20);
 	while(getPS2ReadyToRead()==0){
 		if(getTicks()>=10){
 			printstring("__TIMEOUT__\n");
-			break;
+			goto errorcatch;
 		}
 	}
 	char ps2enable = inportb(PS2_DATA);
@@ -469,9 +543,19 @@ void init_ps2(){
 	waitforps2ok();
 	writeToFirstPS2Port(0xF2);
 	waitforps2ok();
-	while(getPS2ReadyToRead()==0){}
+	while(getPS2ReadyToRead()==0){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	unsigned char a = inportb(PS2_DATA);
-	while(getPS2ReadyToRead()==0){}
+	while(getPS2ReadyToRead()==0){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	unsigned char b = inportb(PS2_DATA);
 	printps2devicetype(a);
 	printps2devicetype(b);
@@ -479,14 +563,29 @@ void init_ps2(){
 	// detectie
 	printstring("PS2: second port detection:\n");
 	writeToSecondPS2Port(0xFF);
-	while(inportb(PS2_DATA)!=0xAA){}
+	while(inportb(PS2_DATA)!=0xAA){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	writeToSecondPS2Port(0xF5);
 	waitforps2ok();
 	writeToSecondPS2Port(0xF2);
 	waitforps2ok();
-	while(getPS2ReadyToRead()==0){}
+	while(getPS2ReadyToRead()==0){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	unsigned char c = inportb(PS2_DATA);
-	while(getPS2ReadyToRead()==0){}
+	while(getPS2ReadyToRead()==0){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	unsigned char d = inportb(PS2_DATA);
 	printps2devicetype(c);
 	printps2devicetype(d);
@@ -494,7 +593,12 @@ void init_ps2(){
 	// activatie
 	printstring("PS2: activating port 1\n");
 	writeToFirstPS2Port(0xFF);
-	while(inportb(PS2_DATA)!=0xAA){}
+	while(inportb(PS2_DATA)!=0xAA){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	writeToFirstPS2Port(0xF6);
 	waitforps2ok();
 	writeToFirstPS2Port(0xF4);
@@ -502,7 +606,12 @@ void init_ps2(){
 	
 	printstring("PS2: activating port 2\n");
 	writeToSecondPS2Port(0xFF);
-	while(inportb(PS2_DATA)!=0xAA){}
+	while(inportb(PS2_DATA)!=0xAA){
+		if(getTicks()>=10){
+			printstring("__TIMEOUT__\n");
+			goto errorcatch;
+		}
+	}
 	writeToSecondPS2Port(0xF6);
 	waitforps2ok();
 	writeToSecondPS2Port(0xF4);
@@ -511,6 +620,10 @@ void init_ps2(){
 	printstring("PS2: activating inthandler\n");
     	setNormalInt(12,(unsigned long)mouseirq);
     	setNormalInt(1,(unsigned long)keyboardirq);
+    	return;
+    	
+	errorcatch:
+	printstring("PS2: ABORTED DUE TIMEOUT\n");
     	
 }
 
@@ -523,6 +636,10 @@ extern void timerirq();
 
 int clock = 0;
 volatile int ticks = 0;
+
+void resetTicks(){
+	ticks = 0;
+}
 
 int getTicks(){
 	return ticks;
@@ -603,6 +720,51 @@ void putc(char a){
 		}
 	}
 }
+
+
+char * itoa( int value, char * str, int base )
+{
+    char * rc;
+    char * ptr;
+    char * low;
+    // Check for supported base.
+    if ( base < 2 || base > 36 )
+    {
+        *str = '\0';
+        return str;
+    }
+    rc = ptr = str;
+    // Set '-' for negative decimals.
+    if ( value < 0 && base == 10 )
+    {
+        *ptr++ = '-';
+    }
+    // Remember where the numbers start.
+    low = ptr;
+    // The actual conversion.
+    do
+    {
+        // Modulo is negative for negative value. This trick makes abs() unnecessary.
+        *ptr++ = "zyxwvutsrqponmlkjihgfedcba9876543210123456789abcdefghijklmnopqrstuvwxyz"[35 + value % base];
+        value /= base;
+    } while ( value );
+    // Terminating the string.
+    *ptr-- = '\0';
+    // Invert the numbers.
+    while ( low < ptr )
+    {
+        char tmp = *low;
+        *low++ = *ptr;
+        *ptr-- = tmp;
+    }
+    return rc;
+}
+void hexdump(unsigned long alpha){
+	char msg[20];
+	itoa(alpha,msg,16);
+	printstring(msg);
+}
+
 
 //
 // Interrupt Descriptor Table
