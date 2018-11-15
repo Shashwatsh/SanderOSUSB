@@ -1,5 +1,7 @@
 unsigned char inportb (unsigned short _port);
 void outportb (unsigned short _port, unsigned char _data);
+unsigned short inportw(unsigned short _port);
+void outportw(unsigned short _port, unsigned short _data);
 unsigned long inportl(unsigned short _port);
 void outportl(unsigned short _port, unsigned long _data);
 void kernel_main();
@@ -62,8 +64,36 @@ void kernel_main(){
 //
 //
 
-void init_uhci(){
+void init_uhci(unsigned long BAR){
 	printstring("UHCI: initialisation started!\n");
+	printstring("UHCI: listening to port ");hexdump(BAR);printstring("\n");
+	unsigned short usbcmd 		= inportw(BAR);
+	unsigned short usbsts 		= inportw(BAR+0x02);
+	unsigned short usbintr		= inportw(BAR+0x04);
+	unsigned short frnum  		= inportw(BAR+0x06);
+	unsigned short frbaseadd	= inportw(BAR+0x08);
+	unsigned short sofmod		= inportb(BAR+0x0C);
+	unsigned short portsc1		= inportw(BAR+0x10);
+	unsigned short portsc2		= inportw(BAR+0x12);
+	if((portsc1 & 0b0000000000000001)>0){
+		if((portsc1 & 0b0000000100000000)>0){
+			printstring("UHCI: Port1 contains a low speed USB device\n");
+		}else{
+			printstring("UHCI: Port1 contains a full speed USB device\n");
+		}
+	}else{
+		printstring("UHCI: Port1 contains no USB device\n");
+	}
+	if((portsc2 & 0b0000000000000001)>0){
+		if((portsc2 & 0b0000000100000000)>0){
+			printstring("UHCI: Port2 contains a low speed USB device\n");
+		}else{
+			printstring("UHCI: Port2 contains a full speed USB device\n");
+		}
+	}else{
+		printstring("UHCI: Port2 contains no USB device\n");
+	}
+	printstring("\n");
 }
 
 //
@@ -225,59 +255,13 @@ void init_pci(){
 							
 								printstring("UHCI [USB 1]\n");
 								
-								printstring("UHCI: BAR0 = 0x");
-								unsigned short suba[2];
-								suba[0] = pciConfigReadWord(bus,slot,function,16);
-								suba[1] = pciConfigReadWord(bus,slot,function,18);
-								unsigned long BAR0 = (unsigned long)((unsigned long*)suba)[0];
-								hexdump(BAR0);
-								
-								printstring(" BAR1 = 0x");
-								unsigned short subb[2];
-								subb[0] = pciConfigReadWord(bus,slot,function,20);
-								subb[1] = pciConfigReadWord(bus,slot,function,22);
-								unsigned long BAR1 = (unsigned long)((unsigned long*)subb)[0];
-								hexdump(BAR1);
-								
-								printstring(" BAR2 = 0x");
-								unsigned short subc[2];
-								subc[0] = pciConfigReadWord(bus,slot,function,24);
-								subc[1] = pciConfigReadWord(bus,slot,function,26);
-								unsigned long BAR2 = (unsigned long)((unsigned long*)subc)[0];
-								hexdump(BAR2);
-								
-								printstring(" BAR3 = 0x");
-								unsigned short subd[2];
-								subd[0] = pciConfigReadWord(bus,slot,function,28);
-								subd[1] = pciConfigReadWord(bus,slot,function,30);
-								unsigned long BAR3 = (unsigned long)((unsigned long*)subd)[0];
-								hexdump(BAR3);
-								
-								printstring(" BAR4 = 0x");
 								unsigned short sube[2];
-								sube[0] = pciConfigReadWord(bus,slot,function,32);//32
-								sube[1] = pciConfigReadWord(bus,slot,function,34);//34
+								sube[0] = pciConfigReadWord(bus,slot,function,32);
+								sube[1] = pciConfigReadWord(bus,slot,function,34);
 								unsigned long BAR4 = (unsigned long)((unsigned long*)sube)[0];
 								BAR4 = BAR4-1;
-								hexdump(BAR4);
 								
-								printstring(" BAR5 = 0x");
-								unsigned short subf[2];
-								subf[0] = pciConfigReadWord(bus,slot,function,36);
-								subf[1] = pciConfigReadWord(bus,slot,function,38);
-								unsigned long BAR5 = (unsigned long)((unsigned long*)subf)[0];
-								hexdump(BAR5);
-								
-								printstring("\nUHCI: ");
-								char* bx = (char*) BAR4;
-								for(int i = 0 ; i < 30 ; i++){
-									char x = inportb(BAR4+i);
-									hexdump(x);
-									printstring(" ");
-								}
-								printstring("\n");
-								
-								init_uhci();
+								init_uhci(BAR4);
 								
 							}else if(subsub==0x10){
 								printstring("OHCI [USB 1]");
@@ -911,6 +895,16 @@ void init_gdt(){
 // CORE
 //
 //
+
+unsigned short inportw (unsigned short _port){
+    unsigned short rv;
+    __asm__ __volatile__ ("inw %1, %0" : "=a" (rv) : "dN" (_port));
+    return rv;
+}
+
+void outportw (unsigned short _port, unsigned short _data){
+    __asm__ __volatile__ ("outw %1, %0" : : "dN" (_port), "a" (_data));
+}
 
 unsigned long inportl (unsigned short _port){
     unsigned long rv;
