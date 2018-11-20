@@ -41,6 +41,7 @@ struct Registers{
     unsigned int eip, cs, eflags, useresp, ss;   /* pushed by the processor automatically */ 
 };
 unsigned char* videomemory = (unsigned char*)0xb8000;
+extern void entryp();
 
 void kernel_main(){
 	init_video();
@@ -58,6 +59,9 @@ void kernel_main(){
 	printstring("=> PCI...\n");
 	init_pci();
 	printf("Shashwat %d sss %s",1, "test2");
+	printstring("\n");
+	idt_set_gate(80, (unsigned)entryp , 0x08, 0x8E);
+	asm volatile("int $0x80");
 	printstring("\nEnd of loading system!\n");
 	for(;;);
 }
@@ -900,18 +904,35 @@ void setErrorInt(unsigned char num,unsigned long base){
 	idt_set_gate(num, base, 0x08, 0x8E);
 }
 
+//extern void entryp();
+
 void setNormalInt(unsigned char num,unsigned long base){
 	idt_set_gate(32+num, base, 0x08, 0x8E);
+	idt_set_gate(80, (unsigned)entryp , 0x08, 0x8E);
 }
 
 
 extern void isr_common_stub();
 extern void irq_common_stub();
 
+
 void fault_handler(struct Registers *reg){
 	printstring(" -= KERNEL PANIC =- ");
 	asm volatile("cli");
 	asm volatile("hlt");
+//	if (reg->int_no == 0x80)
+//	{
+//		printf("int handler: %d", reg->int_no);
+//	} else {
+//	      printf("int handler: %d", reg->int_no);
+//	      printstring(" -= KERNEL PANIC =- ");
+//     	      asm volatile("cli");
+//	      asm volatile("hlt");
+//	}
+}
+
+void entryp_handler(struct Registers *reg){
+	printf("interrupt recv: %d", reg->int_no);
 }
 
 
